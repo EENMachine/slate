@@ -21,19 +21,18 @@ struct CallSheetsView: View {
                 sheetList
                     .frame(minWidth: 240, idealWidth: 280)
                 preview
-                    .frame(minWidth: 480)
+                    .frame(minWidth: 540)
             }
         }
         .navigationTitle("Call Sheets")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    ForEach(CallSheetVariant.allCases) { v in
-                        Button(v.displayName) { vm.generate(variant: v) }
-                    }
+                Button {
+                    vm.generateForSelectedVariant()
                 } label: {
-                    Label("Generate", systemImage: "wand.and.stars")
+                    Label("Generate \(vm.selectedVariant.displayName)", systemImage: "wand.and.stars")
                 }
+                .help("Add a new \(vm.selectedVariant.displayName) call sheet to the list.")
             }
         }
     }
@@ -57,7 +56,7 @@ struct CallSheetsView: View {
                     ContentUnavailableView(
                         "No call sheets yet",
                         systemImage: "doc.text",
-                        description: Text("Generate one, or wait for the scraper.")
+                        description: Text("Pick a variant on the right and click Generate.")
                     )
                 } else {
                     ForEach(vm.sheets) { sheet in
@@ -76,38 +75,103 @@ struct CallSheetsView: View {
     }
 
     private var preview: some View {
-        Group {
-            if let sheet = vm.selectedSheet {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(sheet.title).font(.title.weight(.semibold))
-                        Text(sheet.variant.displayName)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Divider()
-                        Text(sheet.body)
-                            .font(.body.monospaced())
-                            .textSelection(.enabled)
-
-                        Spacer(minLength: 24)
-                        // Branded footer on every generated artifact preview.
-                        EENMACHINESWordmark(style: .artifact)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-                    .padding(24)
+        VStack(spacing: 0) {
+            // Variant tabs across the top of the preview pane. Same
+            // layout for each variant — only the labels differ.
+            Picker("Variant", selection: $vm.selectedVariant) {
+                ForEach(CallSheetVariant.allCases) { v in
+                    Text(v.displayName).tag(v)
                 }
-            } else {
-                ContentUnavailableView(
-                    "Select a call sheet",
-                    systemImage: "doc.text",
-                    description: Text("Pick one from the list to preview.")
-                )
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            // PENDING banner — prominent until Ian provides the real template.
+            pendingBanner
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+
+            ScrollView {
+                if let sheet = vm.selectedSheet, sheet.variant == vm.selectedVariant {
+                    artifactView(sheet.artifact)
+                } else {
+                    artifactView(vm.previewArtifact(for: vm.selectedVariant))
+                }
             }
         }
+    }
+
+    private var pendingBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(TemplateEngine.pendingMarker)
+                    .font(.caption.weight(.semibold))
+                Text("Generic section labels shown below. Real EENMACHINES formatting locks in once Ian shares the client's template.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .background(Color.yellow.opacity(0.18))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.yellow.opacity(0.55), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    @ViewBuilder
+    private func artifactView(_ artifact: RenderedArtifact) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(artifact.header)
+                    .font(.title.weight(.semibold))
+                if case .callSheet(let v) = artifact.kind {
+                    Text(v.displayName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ForEach(artifact.sections, id: \.heading) { section in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(section.heading.uppercased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .tracking(1.0)
+                    Divider()
+                    ForEach(section.fields) { field in
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(field.label)
+                                .frame(width: 170, alignment: .leading)
+                                .foregroundStyle(.secondary)
+                            Text(field.value)
+                                .foregroundStyle(field.value == "<TBD>" ? .secondary : .primary)
+                                .textSelection(.enabled)
+                        }
+                        .font(.body)
+                    }
+                }
+            }
+
+            Divider().padding(.vertical, 8)
+
+            // Branded footer — tasteful per Branding rules.
+            HStack {
+                Spacer()
+                EENMACHINESWordmark(style: .artifact)
+                Spacer()
+            }
+        }
+        .padding(24)
     }
 }
 
 #Preview {
     CallSheetsView()
-        .frame(width: 1000, height: 640)
+        .frame(width: 1100, height: 700)
 }
