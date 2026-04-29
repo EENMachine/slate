@@ -89,27 +89,25 @@ final class DCTWatermarkTests: XCTestCase {
         let w = 64, h = 64
         let plane = gradientPlane(width: w, height: h)
 
-        // Embed a single FALSE bit at block 0 (origin 0,0). To isolate
-        // block-0 behavior, use just one bit.
-        let modified0 = try DCTWatermark.embed(bits: [false], intoLuminance: plane, width: w, height: h)
-        let delta0 = zip(modified0, plane).map { $0 - $1 }
-        let block0Delta = (0..<8).flatMap { r in (0..<8).map { c in delta0[r * w + c] } }
-        let block0Peak = block0Delta.map(abs).max() ?? 0
-        let block0Min = block0Delta.min() ?? 0
-        let block0Max = block0Delta.max() ?? 0
+        // FALSE bit
+        let modifiedF = try DCTWatermark.embed(bits: [false], intoLuminance: plane, width: w, height: h)
+        let deltaF = (0..<8).flatMap { r in (0..<8).map { c in modifiedF[r * w + c] - plane[r * w + c] } }
 
-        // Quantize and extract.
-        let quantized0 = modified0.map { Float(UInt8(max(0, min(255, $0.rounded())))) }
-        let recovered0 = try DCTWatermark.extract(bitCount: 1, fromLuminance: quantized0, width: w, height: h)
+        // TRUE bit
+        let modifiedT = try DCTWatermark.embed(bits: [true], intoLuminance: plane, width: w, height: h)
+        let deltaT = (0..<8).flatMap { r in (0..<8).map { c in modifiedT[r * w + c] - plane[r * w + c] } }
 
-        // Forward-DCT the quantized block 0 manually to see the actual
-        // (3,4) coefficient at extract time.
-        var rawBlock = [Float](repeating: 0, count: 64)
-        for r in 0..<8 { for c in 0..<8 { rawBlock[r * 8 + c] = quantized0[r * w + c] } }
-        // We can't call private forwardDCT, but extract reads sign of
-        // coefficient — use the recovered value to infer.
+        // Per-pixel snapshot of first row for each
+        let rowF = deltaF[0..<8].map { String(format: "%.2f", $0) }.joined(separator: ",")
+        let rowT = deltaT[0..<8].map { String(format: "%.2f", $0) }.joined(separator: ",")
 
-        XCTFail("DIAGNOSTIC block 0 (bit=false, sign=-1): perturbation peak=\(block0Peak), min=\(block0Min), max=\(block0Max), recovered=\(recovered0[0])")
+        let pF = (min: deltaF.min() ?? 0, max: deltaF.max() ?? 0)
+        let pT = (min: deltaT.min() ?? 0, max: deltaT.max() ?? 0)
+
+        // Plane row 0, block 0
+        let planeRow = (0..<8).map { String(plane[$0]) }.joined(separator: ",")
+
+        XCTFail("DIAG: planeRow0=[\(planeRow)] | FALSE delta range=[\(pF.min)..\(pF.max)] row0=[\(rowF)] | TRUE delta range=[\(pT.min)..\(pT.max)] row0=[\(rowT)]")
     }
 
     func testRejectsNonBlockAlignedDimensions() {
