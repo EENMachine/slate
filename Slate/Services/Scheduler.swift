@@ -117,6 +117,16 @@ final class BackgroundActivityScheduler: Scheduling, @unchecked Sendable {
         action: @escaping @Sendable () async -> Void
     ) -> ScheduledJobToken {
         let token = ScheduledJobToken(id: UUID())
+
+        // Preview-safety short-circuit. SwiftUI canvas renders construct
+        // ViewModels with default args, which would register a real
+        // `NSBackgroundActivityScheduler` activity (cached in the OS
+        // activity database across reboots) every time the canvas
+        // refreshes. Detect Xcode previews and hand back an inert token.
+        if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+            return token
+        }
+
         switch rule {
         case .hourly:
             scheduleHourly(token: token, action: action)
