@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Sandbox — required for distribution. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Network client — needed for: Microsoft Graph (mail/calendar/Teams),
+         Anthropic API (LLMClient), social platform APIs (Views tracker). -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- User-selected files: read for ingesting source video clips,
+         write for emitting watermarked outputs and generated call sheets. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- Downloads folder write — for batch report exports. -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+
+    <!--
+        TODO(slate-oauth): Mail/Calendar/Teams access is via Microsoft Graph
+        over HTTPS using delegated OAuth (MSAL). No native Calendar.app or
+        Mail.app entitlements are needed because we never touch the local
+        Apple data stores — Graph is server-side. When we wire MSAL we'll
+        also need an Azure AD app registration and a redirect URI; both go
+        in a non-committed config file, NEVER in source.
+    -->
+</dict>
+</plist>

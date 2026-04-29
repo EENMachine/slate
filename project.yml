@@ -1,0 +1,54 @@
+# XcodeGen project definition — run `xcodegen generate` on a Mac to produce Slate.xcodeproj
+# https://github.com/yonaskolb/XcodeGen
+
+name: Slate
+options:
+  bundleIdPrefix: com.eenmachines
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: "" # TODO(slate-signing): set EENMACHINES Apple Developer team ID
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  Slate:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Slate
+        excludes:
+          - "**/README.md"
+    resources: []
+    info:
+      path: Slate/Info.plist
+      properties:
+        CFBundleName: Slate
+        CFBundleDisplayName: Slate
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "© 2026 EENMACHINES. All rights reserved."
+        LSApplicationCategoryType: public.app-category.productivity
+    entitlements:
+      path: Slate/Slate.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.eenmachines.slate
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_PREVIEWS: YES
+    dependencies: []
+      # TODO(slate-deps): when wiring real services, add:
+      #   - package: AnthropicSDK     # LLMClient
+      #   - package: MSAL             # MailScraper (Microsoft Graph auth)
+      #   - package: GRDB.swift       # local SQLite store
