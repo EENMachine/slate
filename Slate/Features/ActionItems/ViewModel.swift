@@ -59,16 +59,29 @@ final class ActionItemsViewModel: ObservableObject {
     private let mail: any MailScraping
     private let scheduler: any Scheduling
     private let llm: any LLMClienting
+    private var hourlyToken: ScheduledJobToken?
 
     init(
         mail: any MailScraping = MailScraperStub(),
-        scheduler: any Scheduling = SchedulerStub(),
+        scheduler: any Scheduling = BackgroundActivityScheduler.shared,
         llm: any LLMClienting = LLMClientStub()
     ) {
         self.mail = mail
         self.scheduler = scheduler
         self.llm = llm
-        // TODO(slate-actions): register hourly tick → refreshNow().
+
+        // Register the hourly tick. The action hops back to the main actor
+        // because `refreshNow()` is `@MainActor`-isolated. Capture self
+        // weakly so VM teardown stops the tick from holding a strong ref.
+        self.hourlyToken = scheduler.schedule(.hourly) { [weak self] in
+            await self?.refreshNow()
+        }
+    }
+
+    deinit {
+        if let token = hourlyToken {
+            scheduler.cancel(token)
+        }
     }
 
     /// Force-run the scrape regardless of schedule.
@@ -77,7 +90,7 @@ final class ActionItemsViewModel: ObservableObject {
     /// extraction system prompt** (it's stable across runs — cache it).
     /// Merge into local list, dedupe by message ID.
     func refreshNow() async {
-        // no-op stub
+        // no-op stub — real wiring lands with item 4 of the overnight delegation.
         lastRefreshed = .now
     }
 

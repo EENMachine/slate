@@ -28,6 +28,17 @@ targets:
         excludes:
           - "**/README.md"
     resources: []
+    # The LaunchAgent plist must be copied into the app bundle at
+    # `Contents/Library/LaunchAgents/com.eenmachines.slate.weekly.plist`
+    # so `SMAppService.agent(plistName:)` can register it at runtime
+    # (see Resources/README.md). XcodeGen's `copyFiles` build phase
+    # does this — destination `wrapper` is `<App>.app/Contents/`,
+    # subpath drops us into the right subdirectory.
+    copyFiles:
+      - destination: wrapper
+        subpath: Library/LaunchAgents
+        files:
+          - Resources/com.eenmachines.slate.weekly.plist
     info:
       path: Slate/Info.plist
       properties:

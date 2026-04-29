@@ -33,15 +33,29 @@ final class ViewsViewModel: ObservableObject {
 
     private let scheduler: any Scheduling
     private let llm: any LLMClienting
+    private var weeklyToken: ScheduledJobToken?
 
     init(
-        scheduler: any Scheduling = SchedulerStub(),
+        scheduler: any Scheduling = BackgroundActivityScheduler.shared,
         llm: any LLMClienting = LLMClientStub()
     ) {
         self.scheduler = scheduler
         self.llm = llm
-        // TODO(slate-views): register the recurring weekly job and store the next-fire date.
         self.nextScheduled = Self.nextWednesday1030PT(from: .now)
+
+        // Register the recurring Wed 10:30 PT job. The in-process scheduler
+        // handles the case when Slate is open; the LaunchAgent at
+        // Resources/com.eenmachines.slate.weekly.plist handles the case
+        // when it's quit (see Resources/README.md).
+        self.weeklyToken = scheduler.schedule(.wednesday1030PacificTime) { [weak self] in
+            await self?.runWeeklyReportNow()
+        }
+    }
+
+    deinit {
+        if let token = weeklyToken {
+            scheduler.cancel(token)
+        }
     }
 
     /// Force-run the weekly report regardless of schedule.
@@ -49,7 +63,8 @@ final class ViewsViewModel: ObservableObject {
     /// summarize via LLMClient (prompt-cached on the report template),
     /// render PDF + post to a configurable output path.
     func runWeeklyReportNow() async {
-        // no-op stub
+        // no-op stub — real wiring lands with item 6 of the overnight delegation.
+        nextScheduled = Self.nextWednesday1030PT(from: .now)
     }
 
     /// User adds a link to track.

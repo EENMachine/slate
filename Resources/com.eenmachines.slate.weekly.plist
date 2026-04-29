@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    LaunchAgent for Slate's weekly Wed 10:30 AM Pacific view report.
+
+    Install via SMAppService on macOS 13+:
+        SMAppService.agent(plistName: "com.eenmachines.slate.weekly.plist").register()
+    The plist must end up at `Slate.app/Contents/Library/LaunchAgents/<name>`
+    in the packaged bundle — see `Resources/README.md` for the build-phase
+    setup that copies this file into place.
+
+    Schedule note: launchd's `StartCalendarInterval.Weekday` numbers days
+    0–6 with Wednesday = 3, NOT 4 (Foundation's Calendar uses
+    Sunday = 1, Wednesday = 4). Don't change one without changing the other.
+
+    Timezone caveat: launchd interprets `StartCalendarInterval` in the
+    SYSTEM local timezone. The `EnvironmentVariables.TZ` entry only
+    affects the spawned process's environment, NOT scheduling. EENMACHINES
+    is in PT, so as long as the user's Mac is set to America/Los_Angeles
+    this fires at the right wall-clock time. If we ever ship this to a
+    user outside PT, we'll need a wrapper that fires more often and
+    self-checks the wall clock.
+
+    `ProgramArguments` points at a SlateWeeklyHelper binary inside the
+    app bundle. The helper opens the running Slate via XPC if it's up,
+    otherwise launches Slate headlessly with `--run-weekly-report`. See
+    `Resources/README.md` for the helper-target TODO.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.eenmachines.slate.weekly</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- TODO(slate-scheduler): replace with the real helper path once
+             the SlateWeeklyHelper target exists. For now the absolute path
+             below assumes the app is installed at /Applications/Slate.app. -->
+        <string>/Applications/Slate.app/Contents/MacOS/SlateWeeklyHelper</string>
+        <string>--run-weekly-report</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <!-- launchd numbering: 0 = Sun, 1 = Mon, 2 = Tue, 3 = Wed, ... -->
+        <key>Weekday</key>
+        <integer>3</integer>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- For the spawned process only — does NOT affect launchd scheduling. -->
+        <key>TZ</key>
+        <string>America/Los_Angeles</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/com.eenmachines.slate.weekly.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.eenmachines.slate.weekly.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
