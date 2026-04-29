@@ -60,6 +60,20 @@ targets:
         ENABLE_PREVIEWS: YES
     dependencies: []
       # TODO(slate-deps): when wiring real services, add:
-      #   - package: AnthropicSDK     # LLMClient
       #   - package: MSAL             # MailScraper (Microsoft Graph auth)
       #   - package: GRDB.swift       # local SQLite store
+      # Note: Anthropic has no Swift SDK as of 2026-04-29 — LLMClient uses
+      # raw URLSession against /v1/messages. Per the claude-api skill.
+
+  SlateTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Slate
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Slate.app/Contents/MacOS/Slate"
