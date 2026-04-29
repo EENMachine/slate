@@ -23,6 +23,46 @@ import CoreVideo
 import Foundation
 import VideoToolbox
 
+// MARK: - Concurrency helpers
+
+/// Atomic single-shot gate. `consume()` returns `true` exactly once across
+/// all callers; subsequent calls return `false`. Used to guarantee a
+/// `CheckedContinuation` is resumed at most once even when AVFoundation's
+/// `requestMediaDataWhenReady` re-fires its callback after an error path.
+private final class ResumeGuard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var consumed: Bool = false
+
+    var isConsumed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return consumed
+    }
+
+    func consume() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if consumed { return false }
+        consumed = true
+        return true
+    }
+}
+
+/// Tiny mutable counter box so the encode-loop closure can share state
+/// without `var` capture diagnostics in strict-concurrency mode.
+private final class CounterBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Int = 0
+    var value: Int {
+        lock.lock(); defer { lock.unlock() }
+        return _value
+    }
+    func increment() {
+        lock.lock(); defer { lock.unlock() }
+        _value += 1
+    }
+}
+
 enum VideoFrameIO {
     enum IOError: Error, CustomStringConvertible {
         case noVideoTrack
@@ -136,36 +176,52 @@ enum VideoFrameIO {
         writer.startSession(atSourceTime: .zero)
 
         // 3. Walk frames. Modify the first keyframe; passthrough the rest.
-        var frameIndex = 0
-        let nominalDuration: CMTime = nominalFrameRate > 0
-            ? CMTime(value: 1, timescale: CMTimeScale(nominalFrameRate))
-            : CMTime(value: 1, timescale: 30)
+        let frameIndexBox = CounterBox()
+        let resumeGuard = ResumeGuard()
+        _ = nominalFrameRate  // reserved for future timing logic
 
         let queue = DispatchQueue(label: "com.eenmachines.slate.watermark.encode")
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, any Error>) in
+            // Single-shot finalizer. `requestMediaDataWhenReady` keeps
+            // calling its callback until the input is marked finished —
+            // so every error path needs to mark finished AND must guard
+            // against a follow-up re-entry that would double-resume the
+            // continuation. ResumeGuard atomically gates resume.
+            let finalize: (Error?) -> Void = { error in
+                guard resumeGuard.consume() else { return }
+                writerInput.markAsFinished()
+                if let error {
+                    cont.resume(throwing: error)
+                    return
+                }
+                writer.finishWriting {
+                    if writer.status == .completed {
+                        cont.resume(returning: ())
+                    } else {
+                        cont.resume(throwing: IOError.writerFinalizeFailed(writer.error))
+                    }
+                }
+            }
+
             writerInput.requestMediaDataWhenReady(on: queue) {
+                if resumeGuard.isConsumed { return }
                 while writerInput.isReadyForMoreMediaData {
+                    if resumeGuard.isConsumed { return }
+
                     guard let sample = readerOutput.copyNextSampleBuffer() else {
                         // End of stream or reader error.
-                        writerInput.markAsFinished()
                         if reader.status == .failed {
-                            cont.resume(throwing: IOError.readerSetupFailed(reader.error ?? NSError(domain: "VideoFrameIO", code: -2)))
+                            finalize(IOError.readerSetupFailed(reader.error ?? NSError(domain: "VideoFrameIO", code: -2)))
                         } else {
-                            writer.finishWriting {
-                                if writer.status == .completed {
-                                    cont.resume(returning: ())
-                                } else {
-                                    cont.resume(throwing: IOError.writerFinalizeFailed(writer.error))
-                                }
-                            }
+                            finalize(nil)
                         }
                         return
                     }
 
                     let pts = CMSampleBufferGetPresentationTimeStamp(sample)
                     let appended: Bool
-                    if frameIndex == 0 {
+                    if frameIndexBox.value == 0 {
                         // The keyframe — embed bits.
                         do {
                             let modifiedBuffer = try Self.embedBitsIntoFirstFrame(
@@ -175,27 +231,92 @@ enum VideoFrameIO {
                             )
                             appended = pixelAdaptor.append(modifiedBuffer, withPresentationTime: pts)
                         } catch {
-                            cont.resume(throwing: error)
+                            finalize(error)
                             return
                         }
                     } else {
-                        // Passthrough — append the original sample's pixel buffer.
-                        guard let pb = CMSampleBufferGetImageBuffer(sample) else {
-                            cont.resume(throwing: IOError.noPixelBuffer)
+                        // Passthrough. Copy into a pool-allocated buffer
+                        // because the reader's CVPixelBuffer may not be
+                        // compatible with the writer's expected pool, and
+                        // passing it directly can either fail the append
+                        // or trigger an opaque internal copy.
+                        guard let src = CMSampleBufferGetImageBuffer(sample) else {
+                            finalize(IOError.noPixelBuffer)
                             return
                         }
-                        appended = pixelAdaptor.append(pb, withPresentationTime: pts)
+                        do {
+                            let copy = try Self.copyIntoPool(src: src, pool: pixelAdaptor.pixelBufferPool)
+                            appended = pixelAdaptor.append(copy, withPresentationTime: pts)
+                        } catch {
+                            finalize(error)
+                            return
+                        }
                     }
 
                     if !appended {
-                        cont.resume(throwing: IOError.writerAppendFailed(writer.error))
+                        finalize(IOError.writerAppendFailed(writer.error))
                         return
                     }
-                    frameIndex += 1
-                    _ = nominalDuration   // reserved for future timing logic
+                    frameIndexBox.increment()
                 }
             }
         }
+    }
+
+    /// Copy `src` into a fresh pool-allocated CVPixelBuffer. Caller owns
+    /// the returned buffer's lifetime — the writer adaptor will retain it.
+    private static func copyIntoPool(
+        src: CVPixelBuffer,
+        pool: CVPixelBufferPool?
+    ) throws -> CVPixelBuffer {
+        var dest: CVPixelBuffer?
+        if let pool {
+            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &dest)
+        }
+        if dest == nil {
+            // Fall back to a one-off allocation matching the source format.
+            let attrs: [CFString: Any] = [
+                kCVPixelBufferPixelFormatTypeKey: CVPixelBufferGetPixelFormatType(src),
+                kCVPixelBufferWidthKey:           CVPixelBufferGetWidth(src),
+                kCVPixelBufferHeightKey:          CVPixelBufferGetHeight(src),
+                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            ]
+            CVPixelBufferCreate(
+                nil,
+                CVPixelBufferGetWidth(src),
+                CVPixelBufferGetHeight(src),
+                CVPixelBufferGetPixelFormatType(src),
+                attrs as CFDictionary,
+                &dest
+            )
+        }
+        guard let dst = dest else {
+            throw IOError.noPixelBuffer
+        }
+
+        CVPixelBufferLockBaseAddress(src, .readOnly)
+        CVPixelBufferLockBaseAddress(dst, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(dst, [])
+            CVPixelBufferUnlockBaseAddress(src, .readOnly)
+        }
+
+        let height = CVPixelBufferGetHeight(src)
+        let srcStride = CVPixelBufferGetBytesPerRow(src)
+        let dstStride = CVPixelBufferGetBytesPerRow(dst)
+        guard
+            let srcBase = CVPixelBufferGetBaseAddress(src),
+            let dstBase = CVPixelBufferGetBaseAddress(dst)
+        else {
+            throw IOError.noPixelBuffer
+        }
+        let bytesPerRow = min(srcStride, dstStride)
+        for row in 0..<height {
+            let srcRow = srcBase.advanced(by: row * srcStride)
+            let dstRow = dstBase.advanced(by: row * dstStride)
+            memcpy(dstRow, srcRow, bytesPerRow)
+        }
+        return dst
     }
 
     // MARK: - Extract

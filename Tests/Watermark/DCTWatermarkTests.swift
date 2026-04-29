@@ -41,6 +41,37 @@ final class DCTWatermarkTests: XCTestCase {
         XCTAssertEqual(recovered, bits)
     }
 
+    /// Embed → clamp/round through 8-bit unsigned (the same lossy step
+    /// the real video pipeline takes when writing back a luminance plane
+    /// to a `CVPixelBuffer`) → extract. Strength=8.0 should keep the sign
+    /// of the embedded coefficient through this rounding.
+    func testRoundTrip_survivesUInt8Quantization() throws {
+        let w = 64, h = 64
+        let plane = gradientPlane(width: w, height: h)
+        let bits = (0..<32).map { $0 % 3 == 0 }
+        let modified = try DCTWatermark.embed(
+            bits: bits,
+            intoLuminance: plane,
+            width: w,
+            height: h
+        )
+        // Simulate the 8-bit luma round-trip: clamp to [0,255], round,
+        // truncate to UInt8, lift back to Float.
+        let quantized = modified.map { value -> Float in
+            Float(UInt8(max(0, min(255, value.rounded()))))
+        }
+        let recovered = try DCTWatermark.extract(
+            bitCount: bits.count,
+            fromLuminance: quantized,
+            width: w,
+            height: h
+        )
+        XCTAssertEqual(
+            recovered, bits,
+            "Strength \(DCTWatermark.strength) should survive 8-bit luma round-trip."
+        )
+    }
+
     func testRoundTrip_allZeros() throws {
         let w = 64, h = 64
         let plane = gradientPlane(width: w, height: h)
