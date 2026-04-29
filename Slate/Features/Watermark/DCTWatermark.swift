@@ -54,12 +54,20 @@ enum DCTWatermark {
         try precheck(plane: plane, width: width, height: height, bitCount: bits.count)
         var output = plane
 
+        // vDSP's DCT-II/III are unnormalized: forward then inverse scales
+        // by (2N) per 1-D pass, hence (2N)^2 = 256 for our 2-D 8×8 block.
+        // We compensate inside `inverseDCT`, but that means the modified
+        // coefficient must be pre-multiplied by the same factor so its
+        // spatial-domain footprint after iDCT is on the order of `strength`
+        // (otherwise UInt8 round-trip rounds the embedded sign away).
+        let scale = Float((2 * blockSize) * (2 * blockSize))
+
         for (bitIndex, bit) in bits.enumerated() {
             let (bx, by) = blockOrigin(forBitIndex: bitIndex, imageWidth: width)
             var block = readBlock(from: output, at: (bx, by), stride: width)
             forwardDCT(&block)
             let i = coefficientRow * blockSize + coefficientCol
-            block[i] = signedMagnitude(block[i], targetSign: bit ? 1 : -1)
+            block[i] = signedMagnitude(block[i], targetSign: bit ? 1 : -1) * scale
             inverseDCT(&block)
             writeBlock(block, into: &output, at: (bx, by), stride: width)
         }
@@ -163,6 +171,14 @@ enum DCTWatermark {
 
     private static func inverseDCT(_ block: inout [Float]) {
         do2DDCT(&block, kind: .inverse)
+        // vDSP's DCT-II then DCT-III scales by 2N per 1-D pass. Apply the
+        // (2N)^2 normalization here so that, in the absence of coefficient
+        // edits, `forwardDCT` followed by `inverseDCT` is the identity on
+        // the spatial-domain block.
+        let invScale = 1.0 / Float((2 * blockSize) * (2 * blockSize))
+        for k in 0..<block.count {
+            block[k] *= invScale
+        }
     }
 
     private enum DCTKind {
