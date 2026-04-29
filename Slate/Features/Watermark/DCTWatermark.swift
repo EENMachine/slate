@@ -36,13 +36,14 @@ enum DCTWatermark {
     static let coefficientRow: Int = 3
     static let coefficientCol: Int = 4
 
-    /// Minimum |coefficient| we enforce after embedding. Bigger = more
-    /// robust, more visible. After the (2N)² compensation in `embed` and
-    /// the matched `inverseDCT` normalization, this becomes the spatial-
-    /// domain peak of the perturbation in luminance units. 16 keeps the
-    /// signal well above UInt8 quantization noise (~±0.5/pixel) while
-    /// staying imperceptible on natural footage (<7% of one luma step).
-    static let strength: Float = 16.0
+    /// Minimum |coefficient| we enforce after embedding. After the scale
+    /// compensation in `embed` and the matched `inverseDCT` normalization,
+    /// this is the spatial-domain peak of the perturbation in luminance
+    /// units. 8 keeps the signal well above UInt8 quantization noise
+    /// (~±0.5/pixel) while staying small enough to avoid driving pixels
+    /// out of the [0,255] range on dark or bright host content (clipping
+    /// would destroy the embedded sign asymmetrically).
+    static let strength: Float = 8.0
 
     /// Embed `bits` into the luminance plane, returning a new plane with
     /// the same dimensions. Plane stride must equal `width`.
@@ -57,13 +58,14 @@ enum DCTWatermark {
         try precheck(plane: plane, width: width, height: height, bitCount: bits.count)
         var output = plane
 
-        // vDSP's DCT-II/III are unnormalized: forward then inverse scales
-        // by (2N) per 1-D pass, hence (2N)^2 = 256 for our 2-D 8×8 block.
-        // We compensate inside `inverseDCT`, but that means the modified
-        // coefficient must be pre-multiplied by the same factor so its
-        // spatial-domain footprint after iDCT is on the order of `strength`
-        // (otherwise UInt8 round-trip rounds the embedded sign away).
-        let scale = Float((2 * blockSize) * (2 * blockSize))
+        // vDSP's DCT-II/III round-trip scales by (2N)² = 256 in 2-D, which
+        // `inverseDCT` already divides out. But DCT-III of a unit impulse
+        // at (i,j>0) has spatial peak amplitude 4 (= 2 per 1-D pass from
+        // the 2·cos(...) form), not 1. So pre-multiplying the modified
+        // coefficient by (2N)²/4 = 64 makes the spatial-domain peak of the
+        // perturbation equal `strength`, matching the doc-comment intent
+        // and keeping pixels safely inside [0,255] for normal host content.
+        let scale = Float((2 * blockSize) * (2 * blockSize)) / 4
 
         for (bitIndex, bit) in bits.enumerated() {
             let (bx, by) = blockOrigin(forBitIndex: bitIndex, imageWidth: width)
