@@ -103,7 +103,11 @@ extension LLMClienting {
 
 enum LLMClientDefaults {
     /// Current default. Bump in lockstep with the claude-api skill's migration notes.
-    static let model: String = "claude-sonnet-4-5"
+    /// As of 2026-04-29, `claude-sonnet-4-6` is the current Sonnet —
+    /// good price/perf for our bulk workloads (call-sheet drafting,
+    /// action-item extraction). For hardest-judgment work consider
+    /// `claude-opus-4-7`; both support adaptive thinking + prompt caching.
+    static let model: String = "claude-sonnet-4-6"
 }
 
 // MARK: - Stub
@@ -115,6 +119,13 @@ struct LLMClientStub: LLMClienting {
         //   - Add `anthropic-version` header.
         //   - For each `LLMMessage` with `cacheable == true`, attach
         //     `cache_control: { "type": "ephemeral" }` to its content block.
+        //     Render order is tools → system → messages, and the cache is a
+        //     prefix match — keep the cacheable system prompts byte-stable
+        //     (no timestamps, sorted JSON, deterministic tool order).
+        //   - Min cacheable prefix is 2048 tokens on Sonnet 4.6 and 4096 on
+        //     Opus/Haiku 4.x. Short prompts silently won't cache — verify
+        //     by checking that `cacheReadInputTokens > 0` on the second call
+        //     with the same prefix.
         //   - Log cacheReadInputTokens vs cacheCreationInputTokens — these tell us
         //     if our cache strategy is actually paying off.
         LLMResponse(

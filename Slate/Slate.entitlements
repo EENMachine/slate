@@ -12,12 +12,10 @@
     <true/>
 
     <!-- User-selected files: read for ingesting source video clips,
-         write for emitting watermarked outputs and generated call sheets. -->
+         write for emitting watermarked outputs and generated call sheets.
+         This already covers Downloads-folder writes when the user picks
+         that location, so no separate downloads entitlement is needed. -->
     <key>com.apple.security.files.user-selected.read-write</key>
-    <true/>
-
-    <!-- Downloads folder write — for batch report exports. -->
-    <key>com.apple.security.files.downloads.read-write</key>
     <true/>
 
     <!--
