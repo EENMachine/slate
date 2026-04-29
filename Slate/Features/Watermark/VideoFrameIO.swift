@@ -71,9 +71,9 @@ enum VideoFrameIO {
         case readSampleFailed
         case noPixelBuffer
         case unsupportedPixelFormat(OSType)
-        case writerStartFailed(any Error?)
-        case writerAppendFailed(any Error?)
-        case writerFinalizeFailed(any Error?)
+        case writerStartFailed((any Error)?)
+        case writerAppendFailed((any Error)?)
+        case writerFinalizeFailed((any Error)?)
 
         var description: String {
             switch self {

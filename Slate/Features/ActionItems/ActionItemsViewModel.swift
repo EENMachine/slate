@@ -193,7 +193,7 @@ final class ActionItemsViewModel: ObservableObject {
     /// which does not require Microsoft Graph auth. Real
     /// `MSGraphMailScraper` lands when Ian provides the Azure tenant /
     /// OAuth client ID (open Q in the scratchpad).
-    static func defaultMailScraper() -> any MailScraping {
+    nonisolated static func defaultMailScraper() -> any MailScraping {
         if let scraper = FixtureMailScraper.bundled("2026-04-29-inbox") {
             return scraper
         }
