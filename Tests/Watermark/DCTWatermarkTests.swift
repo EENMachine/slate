@@ -81,33 +81,30 @@ final class DCTWatermarkTests: XCTestCase {
         XCTAssertEqual(recovered, bits)
     }
 
-    /// DIAGNOSTIC: Surface the actual spatial perturbation magnitude and
-    /// the post-quantization extracted-coefficient sign for a single -bit
-    /// block so we can see which assumption in the embed/extract math is
-    /// wrong. Failure messages contain the actual numbers.
+    /// DIAGNOSTIC v3: Test embed→extract on a block with a CONSTANT plane
+    /// (no gradient) so any bit-dependent behavior is unambiguous, and
+    /// also test multi-bit embed to compare against single-bit.
     func testDiagnostic_singleNegativeBit_block1() throws {
         let w = 64, h = 64
-        let plane = gradientPlane(width: w, height: h)
 
-        // FALSE bit
-        let modifiedF = try DCTWatermark.embed(bits: [false], intoLuminance: plane, width: w, height: h)
-        let deltaF = (0..<8).flatMap { r in (0..<8).map { c in modifiedF[r * w + c] - plane[r * w + c] } }
+        // Constant plane (value 128) — eliminates host (3,4) coefficient
+        // contamination entirely, isolates the embed perturbation.
+        let constPlane = [Float](repeating: 128, count: w * h)
 
-        // TRUE bit
-        let modifiedT = try DCTWatermark.embed(bits: [true], intoLuminance: plane, width: w, height: h)
-        let deltaT = (0..<8).flatMap { r in (0..<8).map { c in modifiedT[r * w + c] - plane[r * w + c] } }
+        let modConstF = try DCTWatermark.embed(bits: [false], intoLuminance: constPlane, width: w, height: h)
+        let modConstT = try DCTWatermark.embed(bits: [true], intoLuminance: constPlane, width: w, height: h)
+        let constRowF = (0..<8).map { String(format: "%.2f", modConstF[$0]) }.joined(separator: ",")
+        let constRowT = (0..<8).map { String(format: "%.2f", modConstT[$0]) }.joined(separator: ",")
 
-        // Per-pixel snapshot of first row for each
-        let rowF = deltaF[0..<8].map { String(format: "%.2f", $0) }.joined(separator: ",")
-        let rowT = deltaT[0..<8].map { String(format: "%.2f", $0) }.joined(separator: ",")
+        // Multi-bit on constant plane: bit 0 = false, bit 1 = true.
+        let modMulti = try DCTWatermark.embed(bits: [false, true], intoLuminance: constPlane, width: w, height: h)
+        let multiRow0 = (0..<8).map { String(format: "%.2f", modMulti[$0]) }.joined(separator: ",")
+        let multiRow0_block1 = (8..<16).map { String(format: "%.2f", modMulti[$0]) }.joined(separator: ",")
 
-        let pF = (min: deltaF.min() ?? 0, max: deltaF.max() ?? 0)
-        let pT = (min: deltaT.min() ?? 0, max: deltaT.max() ?? 0)
+        // Recover from multi-bit
+        let recoveredMulti = try DCTWatermark.extract(bitCount: 2, fromLuminance: modMulti, width: w, height: h)
 
-        // Plane row 0, block 0
-        let planeRow = (0..<8).map { String(plane[$0]) }.joined(separator: ",")
-
-        XCTFail("DIAG: planeRow0=[\(planeRow)] | FALSE delta range=[\(pF.min)..\(pF.max)] row0=[\(rowF)] | TRUE delta range=[\(pT.min)..\(pT.max)] row0=[\(rowT)]")
+        XCTFail("DIAG v3: const plane=128 | 1-bit FALSE row0=[\(constRowF)] | 1-bit TRUE row0=[\(constRowT)] | 2-bit [false,true] row0 b0=[\(multiRow0)] b1=[\(multiRow0_block1)] recovered=\(recoveredMulti)")
     }
 
     func testRejectsNonBlockAlignedDimensions() {
