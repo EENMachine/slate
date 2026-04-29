@@ -81,29 +81,6 @@ final class DCTWatermarkTests: XCTestCase {
         XCTAssertEqual(recovered, bits)
     }
 
-    /// DIAG v4: For a constant-128 plane with bit=false at block 0, print:
-    /// 1. The actual perturbation values applied by embed (for direct inspection).
-    /// 2. The actual extracted (3,4) coefficient from extract — to show
-    ///    whether the sign of forward-DCT picks up our embed correctly.
-    func testDiag_perturbationAndExtract() throws {
-        let w = 64, h = 64
-        let plane = [Float](repeating: 128, count: w * h)
-        let modF = try DCTWatermark.embed(bits: [false], intoLuminance: plane, width: w, height: h)
-
-        // Inspect block 0 perturbation (= modF - plane in block 0)
-        let pertRow0 = (0..<8).map { String(format: "%.2f", modF[$0] - plane[$0]) }.joined(separator: ",")
-        let pertRow2 = (0..<8).map { String(format: "%.2f", modF[2 * w + $0] - plane[2 * w + $0]) }.joined(separator: ",")
-
-        let recF = try DCTWatermark.extract(bitCount: 1, fromLuminance: modF, width: w, height: h)
-
-        // Embed bit=true for comparison
-        let modT = try DCTWatermark.embed(bits: [true], intoLuminance: plane, width: w, height: h)
-        let recT = try DCTWatermark.extract(bitCount: 1, fromLuminance: modT, width: w, height: h)
-        let pertRow0T = (0..<8).map { String(format: "%.2f", modT[$0] - plane[$0]) }.joined(separator: ",")
-
-        XCTFail("DIAG v4: FALSE pert row0=[\(pertRow0)] row2=[\(pertRow2)] recF=\(recF) | TRUE pert row0=[\(pertRow0T)] recT=\(recT)")
-    }
-
     func testRejectsNonBlockAlignedDimensions() {
         let plane = [Float](repeating: 128, count: 70 * 64)
         XCTAssertThrowsError(
