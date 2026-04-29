@@ -10,10 +10,22 @@ import SwiftUI
 
 @main
 struct SlateApp: App {
+    /// Shared key state. Drives the API-key setup sheet and exposes
+    /// `clear()` so any view can invalidate and re-prompt.
+    @StateObject private var keyState = APIKeyState()
+
     var body: some Scene {
         WindowGroup(Branding.windowTitle) {
             RootView()
                 .frame(minWidth: 980, minHeight: 640)
+                .environmentObject(keyState)
+                .sheet(isPresented: .init(
+                    get: { !keyState.hasKey },
+                    set: { _ in /* dismissal happens via keyState.hasKey flip */ }
+                )) {
+                    APIKeySetupView()
+                        .environmentObject(keyState)
+                }
         }
         .windowResizability(.contentSize)
         .commands {
@@ -27,6 +39,12 @@ struct SlateApp: App {
                             attributes: [.foregroundColor: NSColor.secondaryLabelColor]
                         )
                     ])
+                }
+            }
+            // Settings menu: re-prompt for API key (delete + show sheet).
+            CommandGroup(after: .appInfo) {
+                Button("Reset Anthropic API Key…") {
+                    keyState.clear()
                 }
             }
         }
