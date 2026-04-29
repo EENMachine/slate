@@ -30,7 +30,7 @@
 //      `Resources/README.md` for the install dance.
 //
 //  The `nextWednesday1030PT(from:)` helper at
-//  `Slate/Features/Views/ViewModel.swift` is the canonical Calendar math
+//  `Slate/Features/Views/ViewsViewModel.swift` is the canonical Calendar math
 //  for the weekly job; this file uses the same approach via
 //  `nextFireDate(...)` below — keep them in sync if you change one.
 //
