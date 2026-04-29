@@ -37,13 +37,14 @@ enum DCTWatermark {
     static let coefficientCol: Int = 4
 
     /// Minimum |coefficient| we enforce in the DCT domain after embedding.
-    /// vDSP's iDCT spreads each unit DCT coefficient to a spatial-domain
-    /// basis pattern with peak ~2.8 luminance units, so strength=4 gives
-    /// a spatial peak ~11 — well above the ±0.5/pixel UInt8 quantization
-    /// noise floor when forward-DCT projects each block back onto the
-    /// (3,4) basis and the projected signal must overcome the diffuse
-    /// quantization noise across all 64 pixels weighted by the basis.
-    static let strength: Float = 4.0
+    /// With orthonormal 2-D DCT-II/III on 8×8 blocks, the spatial peak
+    /// of an iDCT'd unit impulse at (i,j) where both i,j > 0 is `2/N` =
+    /// 0.25, so strength=16 gives a spatial perturbation peak of ±4 luma
+    /// units. That sits comfortably above UInt8 quantization noise
+    /// (±0.5/pixel) and small enough to avoid clipping for any host
+    /// pixel between 4 and 251 (i.e., everything except deep shadows
+    /// and blown highlights, which are rare in real footage).
+    static let strength: Float = 16.0
 
     /// Embed `bits` into the luminance plane, returning a new plane with
     /// the same dimensions. Plane stride must equal `width`.
@@ -159,57 +160,73 @@ enum DCTWatermark {
         }
     }
 
-    /// Forward 2-D DCT-II via two passes of `vDSP_DCT_Execute`. Mutates
-    /// `block` in place. `block.count` must equal `blockSize * blockSize`.
+    /// Manual orthonormal 2-D DCT-II / DCT-III implementation. We can't
+    /// use `vDSP_DCT_Execute` here because Apple's vDSP only supports DCT
+    /// lengths of `f × 2^n` with `n ≥ 4` (i.e., min length 16). For our
+    /// 8×8 blocks the vDSP setup silently returns nil, and the wrapper
+    /// becomes a no-op — which is exactly the bug that made every
+    /// watermark "DCT-domain" embed actually run in spatial domain and
+    /// produced the broken UInt8-quantization behavior. The orthonormal
+    /// form below is its own inverse: `inverseDCT(forwardDCT(x)) == x`
+    /// to floating-point precision, with no scaling factor required.
     private static func forwardDCT(_ block: inout [Float]) {
-        do2DDCT(&block, kind: .forward)
+        block = manual2D(block, inverse: false)
     }
 
     private static func inverseDCT(_ block: inout [Float]) {
-        do2DDCT(&block, kind: .inverse)
-        // vDSP's DCT-II∘DCT-III round-trip is empirically identity on
-        // macOS 14 SDK (.II/.III setups behave as orthonormal-style pair),
-        // not 2N-per-pass as the textbook DFT-derived literature suggests.
-        // No additional normalization needed — `forwardDCT` followed by
-        // `inverseDCT` is already the identity on the spatial-domain block.
+        block = manual2D(block, inverse: true)
     }
 
-    private enum DCTKind {
-        case forward, inverse
-    }
-
-    /// Single-block 2-D DCT helper. Builds the 1-D vDSP setups lazily on
-    /// first use and caches them for the lifetime of the process.
-    private static func do2DDCT(_ block: inout [Float], kind: DCTKind) {
-        guard let setup = (kind == .forward) ? Self.forwardSetup : Self.inverseSetup else {
-            // Setup failure is unrecoverable — leave block untouched.
-            return
+    private static func manual2D(_ block: [Float], inverse: Bool) -> [Float] {
+        let N = blockSize
+        // Row pass first.
+        var afterRows = [Float](repeating: 0, count: N * N)
+        for r in 0..<N {
+            var row = [Float](repeating: 0, count: N)
+            for c in 0..<N { row[c] = block[r * N + c] }
+            let transformed = manual1D(row, inverse: inverse)
+            for c in 0..<N { afterRows[r * N + c] = transformed[c] }
         }
-
-        var rowBuf = [Float](repeating: 0, count: blockSize)
-        // Row pass.
-        for r in 0..<blockSize {
-            for c in 0..<blockSize { rowBuf[c] = block[r * blockSize + c] }
-            var dst = [Float](repeating: 0, count: blockSize)
-            rowBuf.withUnsafeBufferPointer { srcPtr in
-                dst.withUnsafeMutableBufferPointer { dstPtr in
-                    vDSP_DCT_Execute(setup, srcPtr.baseAddress!, dstPtr.baseAddress!)
-                }
-            }
-            for c in 0..<blockSize { block[r * blockSize + c] = dst[c] }
-        }
-        var colBuf = [Float](repeating: 0, count: blockSize)
         // Column pass.
-        for c in 0..<blockSize {
-            for r in 0..<blockSize { colBuf[r] = block[r * blockSize + c] }
-            var dst = [Float](repeating: 0, count: blockSize)
-            colBuf.withUnsafeBufferPointer { srcPtr in
-                dst.withUnsafeMutableBufferPointer { dstPtr in
-                    vDSP_DCT_Execute(setup, srcPtr.baseAddress!, dstPtr.baseAddress!)
-                }
-            }
-            for r in 0..<blockSize { block[r * blockSize + c] = dst[r] }
+        var result = [Float](repeating: 0, count: N * N)
+        for c in 0..<N {
+            var col = [Float](repeating: 0, count: N)
+            for r in 0..<N { col[r] = afterRows[r * N + c] }
+            let transformed = manual1D(col, inverse: inverse)
+            for r in 0..<N { result[r * N + c] = transformed[r] }
         }
+        return result
+    }
+
+    /// 1-D orthonormal DCT-II (forward) or DCT-III (inverse). N = `blockSize`.
+    private static func manual1D(_ x: [Float], inverse: Bool) -> [Float] {
+        let N = x.count
+        let a0 = Float(1.0 / Foundation.sqrt(Double(N)))
+        let a1 = Float(Foundation.sqrt(2.0 / Double(N)))
+        var y = [Float](repeating: 0, count: N)
+        if !inverse {
+            // Forward: y[k] = α(k) · Σ_n x[n] · cos((2n+1)·k·π / 2N)
+            for k in 0..<N {
+                var sum: Float = 0
+                for n in 0..<N {
+                    let angle = Double(2 * n + 1) * Double(k) * .pi / Double(2 * N)
+                    sum += x[n] * Float(cos(angle))
+                }
+                y[k] = (k == 0 ? a0 : a1) * sum
+            }
+        } else {
+            // Inverse: y[n] = Σ_k α(k) · X[k] · cos((2n+1)·k·π / 2N)
+            for n in 0..<N {
+                var sum: Float = 0
+                for k in 0..<N {
+                    let alpha = (k == 0) ? a0 : a1
+                    let angle = Double(2 * n + 1) * Double(k) * .pi / Double(2 * N)
+                    sum += alpha * x[k] * Float(cos(angle))
+                }
+                y[n] = sum
+            }
+        }
+        return y
     }
 
     /// Force the sign of a DCT coefficient to `targetSign` (±1) while
@@ -219,13 +236,4 @@ enum DCTWatermark {
         let mag = max(abs(value), strength)
         return targetSign >= 0 ? mag : -mag
     }
-
-    // Lazily-built vDSP setups. `vDSP_DCT_CreateSetup` is expensive —
-    // build once and reuse.
-    private static let forwardSetup: vDSP_DFT_Setup? = vDSP_DCT_CreateSetup(
-        nil, vDSP_Length(blockSize), .II
-    )
-    private static let inverseSetup: vDSP_DFT_Setup? = vDSP_DCT_CreateSetup(
-        nil, vDSP_Length(blockSize), .III
-    )
 }
