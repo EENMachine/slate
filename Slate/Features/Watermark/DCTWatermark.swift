@@ -37,15 +37,13 @@ enum DCTWatermark {
     static let coefficientCol: Int = 4
 
     /// Minimum |coefficient| we enforce in the DCT domain after embedding.
-    /// Empirically, vDSP's iDCT spreads each unit DCT coefficient to a
-    /// spatial-domain pattern with peak ~6.97 luminance units per unit
-    /// coefficient (measured with .II→.III round-trip on macOS 14 SDK).
-    /// So strength=1 gives a spatial peak ~7, comfortably above the
-    /// ±0.5/pixel UInt8 quantization noise floor and small enough to
-    /// avoid clipping for normal host content (only host pixels with
-    /// luma <7 will saturate, which is vanishingly rare for natural
-    /// footage and aligns with sign-positive bias in dark regions).
-    static let strength: Float = 1.0
+    /// vDSP's iDCT spreads each unit DCT coefficient to a spatial-domain
+    /// basis pattern with peak ~2.8 luminance units, so strength=4 gives
+    /// a spatial peak ~11 — well above the ±0.5/pixel UInt8 quantization
+    /// noise floor when forward-DCT projects each block back onto the
+    /// (3,4) basis and the projected signal must overcome the diffuse
+    /// quantization noise across all 64 pixels weighted by the basis.
+    static let strength: Float = 4.0
 
     /// Embed `bits` into the luminance plane, returning a new plane with
     /// the same dimensions. Plane stride must equal `width`.
