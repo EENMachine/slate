@@ -37,9 +37,12 @@ enum DCTWatermark {
     static let coefficientCol: Int = 4
 
     /// Minimum |coefficient| we enforce after embedding. Bigger = more
-    /// robust, more visible. 8.0 in the [0, 255] luminance scale is
-    /// imperceptible on natural footage in our tests.
-    static let strength: Float = 8.0
+    /// robust, more visible. After the (2N)² compensation in `embed` and
+    /// the matched `inverseDCT` normalization, this becomes the spatial-
+    /// domain peak of the perturbation in luminance units. 16 keeps the
+    /// signal well above UInt8 quantization noise (~±0.5/pixel) while
+    /// staying imperceptible on natural footage (<7% of one luma step).
+    static let strength: Float = 16.0
 
     /// Embed `bits` into the luminance plane, returning a new plane with
     /// the same dimensions. Plane stride must equal `width`.
