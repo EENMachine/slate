@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 import SwiftUI
 
 enum ViewPlatform: String, Codable, CaseIterable {
@@ -30,23 +31,26 @@ struct TrackedContent: Identifiable, Hashable {
 final class ViewsViewModel: ObservableObject {
     @Published var tracked: [TrackedContent] = []
     @Published var nextScheduled: Date?
+    @Published var latestReport: WeeklyViewReport?
+    @Published var lastError: String?
 
     private let scheduler: any Scheduling
     private let llm: any LLMClienting
+    private let sources: [any ViewSource]
     private var weeklyToken: ScheduledJobToken?
+
+    private let log = Logger(subsystem: "com.eenmachines.slate", category: "Views")
 
     init(
         scheduler: any Scheduling = BackgroundActivityScheduler.shared,
-        llm: any LLMClienting = LLMClientStub()
+        llm: any LLMClienting = AnthropicLLMClient.shared,
+        sources: [any ViewSource] = [MockViewSource()]
     ) {
         self.scheduler = scheduler
         self.llm = llm
+        self.sources = sources
         self.nextScheduled = Self.nextWednesday1030PT(from: .now)
 
-        // Register the recurring Wed 10:30 PT job. The in-process scheduler
-        // handles the case when Slate is open; the LaunchAgent at
-        // Resources/com.eenmachines.slate.weekly.plist handles the case
-        // when it's quit (see Resources/README.md).
         self.weeklyToken = scheduler.schedule(.wednesday1030PacificTime) { [weak self] in
             await self?.runWeeklyReportNow()
         }
@@ -59,16 +63,47 @@ final class ViewsViewModel: ObservableObject {
     }
 
     /// Force-run the weekly report regardless of schedule.
-    /// TODO(slate-views): pull stats from each platform adapter, aggregate,
-    /// summarize via LLMClient (prompt-cached on the report template),
-    /// render PDF + post to a configurable output path.
+    /// Snapshots every configured `ViewSource`, builds a report, and
+    /// pushes it onto `latestReport`. PDF export is parked behind a
+    /// TODO until Ian confirms the platform list.
     func runWeeklyReportNow() async {
-        // no-op stub — real wiring lands with item 6 of the overnight delegation.
+        var collected: [ViewSnapshot] = []
+        for source in sources {
+            do {
+                let chunk = try await source.snapshot()
+                collected.append(contentsOf: chunk)
+            } catch {
+                lastError = "Source \(source.name) failed: \(error)"
+                log.error("Source \(source.name) snapshot failed: \(String(describing: error))")
+            }
+        }
+
+        let report = WeeklyViewReport(
+            id: UUID(),
+            generatedAt: .now,
+            snapshots: collected
+        )
+        latestReport = report
         nextScheduled = Self.nextWednesday1030PT(from: .now)
+
+        // Refresh the small `tracked` summary so the existing list view
+        // has something to render.
+        self.tracked = collected.map { snapshot in
+            TrackedContent(
+                id: UUID(),
+                title: snapshot.title,
+                platform: ViewPlatform(rawValue: snapshot.platform) ?? .other,
+                url: snapshot.url,
+                viewCount: snapshot.viewCount
+            )
+        }
+
+        log.info("Weekly report: \(collected.count) snapshot(s), total views \(report.totalViews).")
     }
 
     /// User adds a link to track.
-    /// TODO(slate-views): open a sheet to paste URL → resolve via the appropriate adapter.
+    /// TODO(slate-views): open a sheet to paste URL → resolve via the
+    /// appropriate adapter once we have a real platform list.
     func promptForLink() {
         // no-op stub
     }

@@ -41,23 +41,40 @@ import Foundation
 
 enum ScheduleRule: Hashable {
     /// Every hour, with a ±60s coalescing tolerance.
-    case hourly
+    /// `stableKey` is appended to the bundle prefix to form the
+    /// `NSBackgroundActivityScheduler` identifier — pass a stable
+    /// per-logical-job string (e.g. `"action-items"`) so the OS
+    /// activity database doesn't accumulate orphan UUID-suffixed
+    /// entries across reboots. Defaults to `nil`, which reverts to the
+    /// per-registration UUID identifier.
+    case hourly(stableKey: String? = nil)
+
     /// Every week on `weekday` at `hour:minute` in the given timezone.
     /// `weekday` follows `Calendar.weekday` (Sunday = 1, Wednesday = 4).
     /// Note: `launchd`'s `StartCalendarInterval.Weekday` uses 0–6 with
     /// Wednesday = 3, so the LaunchAgent plist value differs by one.
-    case weekly(weekday: Int, hour: Int, minute: Int, timeZone: TimeZone)
+    /// `stableKey` plays the same role as on `.hourly` — passed in so
+    /// the OS doesn't accumulate orphan activity records.
+    case weekly(weekday: Int, hour: Int, minute: Int, timeZone: TimeZone, stableKey: String? = nil)
 }
 
 extension ScheduleRule {
-    /// Convenience: Wednesday 10:30 AM America/Los_Angeles.
+    /// Convenience: Wednesday 10:30 AM America/Los_Angeles, with a
+    /// stable identifier so the OS activity database doesn't grow on
+    /// every app launch.
     static var wednesday1030PacificTime: ScheduleRule {
         .weekly(
             weekday: 4,
             hour: 10,
             minute: 30,
-            timeZone: TimeZone(identifier: "America/Los_Angeles") ?? .current
+            timeZone: TimeZone(identifier: "America/Los_Angeles") ?? .current,
+            stableKey: "weekly-view-report"
         )
+    }
+
+    /// Convenience: hourly, stably keyed for the action-items refresh.
+    static var hourlyActionItems: ScheduleRule {
+        .hourly(stableKey: "action-items")
     }
 }
 
@@ -106,6 +123,10 @@ final class BackgroundActivityScheduler: Scheduling, @unchecked Sendable {
     private let lock = NSLock()
     private var hourlyActivities: [UUID: NSBackgroundActivityScheduler] = [:]
     private var weeklyTimers: [UUID: DispatchSourceTimer] = [:]
+    /// Tokens that have been explicitly cancelled. The weekly timer's
+    /// re-arm path consults this set so a fire-then-cancel race can't
+    /// resurrect a cancelled token (Reviewer's Scheduler nit #1 on 729b102).
+    private var cancelledTokenIDs: Set<UUID> = []
 
     init(bundlePrefix: String = "com.eenmachines.slate") {
         self.bundlePrefix = bundlePrefix
@@ -128,15 +149,16 @@ final class BackgroundActivityScheduler: Scheduling, @unchecked Sendable {
         }
 
         switch rule {
-        case .hourly:
-            scheduleHourly(token: token, action: action)
-        case let .weekly(weekday, hour, minute, timeZone):
+        case .hourly(let stableKey):
+            scheduleHourly(token: token, stableKey: stableKey, action: action)
+        case let .weekly(weekday, hour, minute, timeZone, stableKey):
             scheduleWeekly(
                 token: token,
                 weekday: weekday,
                 hour: hour,
                 minute: minute,
                 timeZone: timeZone,
+                stableKey: stableKey,
                 action: action
             )
         }
@@ -147,6 +169,7 @@ final class BackgroundActivityScheduler: Scheduling, @unchecked Sendable {
         lock.lock()
         let activity = hourlyActivities.removeValue(forKey: token.id)
         let timer = weeklyTimers.removeValue(forKey: token.id)
+        cancelledTokenIDs.insert(token.id)
         lock.unlock()
         activity?.invalidate()
         timer?.cancel()
@@ -156,9 +179,15 @@ final class BackgroundActivityScheduler: Scheduling, @unchecked Sendable {
 
     private func scheduleHourly(
         token: ScheduledJobToken,
+        stableKey: String?,
         action: @escaping @Sendable () async -> Void
     ) {
-        let identifier = "\(bundlePrefix).hourly.\(token.id.uuidString)"
+        // Stable identifiers prevent the OS activity database from
+        // growing every launch (Reviewer's Scheduler nit #2 on 729b102).
+        // If the caller didn't pass a key, fall back to a UUID so two
+        // ad-hoc registrations don't trample each other.
+        let identifier = stableKey.map { "\(bundlePrefix).hourly.\($0)" }
+            ?? "\(bundlePrefix).hourly.\(token.id.uuidString)"
         let activity = NSBackgroundActivityScheduler(identifier: identifier)
         activity.repeats = true
         activity.interval = 60 * 60                      // 1 hour
@@ -183,8 +212,19 @@ final class BackgroundActivityScheduler: Scheduling, @unchecked Sendable {
         hour: Int,
         minute: Int,
         timeZone: TimeZone,
+        stableKey: String?,
         action: @escaping @Sendable () async -> Void
     ) {
+        // Skip if the token was cancelled while we were waiting to
+        // re-arm — closes the fire-then-cancel race Reviewer flagged.
+        // (Reviewer's Scheduler nit #1 on 729b102.)
+        lock.lock()
+        if cancelledTokenIDs.contains(token.id) {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
         guard let fireDate = Self.nextFireDate(
             weekday: weekday,
             hour: hour,
@@ -196,6 +236,13 @@ final class BackgroundActivityScheduler: Scheduling, @unchecked Sendable {
         }
         let interval = max(1, fireDate.timeIntervalSinceNow)
 
+        // Note: `stableKey` is currently informational on the weekly
+        // path — `DispatchSourceTimer` has no equivalent of an OS
+        // activity-database identifier, so there are no orphan records
+        // to worry about. The same `stableKey` lives in the LaunchAgent
+        // plist label (`com.eenmachines.slate.weekly`).
+        _ = stableKey
+
         let timer = DispatchSource.makeTimerSource(
             queue: DispatchQueue.global(qos: .utility)
         )
@@ -206,13 +253,15 @@ final class BackgroundActivityScheduler: Scheduling, @unchecked Sendable {
         timer.setEventHandler { [weak self] in
             Task.detached {
                 await action()
-                // Re-arm for next week.
+                // Re-arm for next week — but only if our token wasn't
+                // cancelled during the action (or before we got here).
                 self?.scheduleWeekly(
                     token: token,
                     weekday: weekday,
                     hour: hour,
                     minute: minute,
                     timeZone: timeZone,
+                    stableKey: stableKey,
                     action: action
                 )
             }

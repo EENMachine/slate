@@ -61,10 +61,14 @@
     <key>RunAtLoad</key>
     <false/>
 
-    <key>StandardOutPath</key>
-    <string>/tmp/com.eenmachines.slate.weekly.out.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/com.eenmachines.slate.weekly.err.log</string>
+    <!--
+        No StandardOutPath / StandardErrorPath: the helper logs via
+        os_log / `Logger` (subsystem com.eenmachines.slate, category
+        weekly-helper) into the unified logging system, so `log show
+        --predicate 'subsystem == "com.eenmachines.slate"'` is the
+        canonical way to see what happened. Sidesteps the tilde-isn't-
+        expanded-by-launchd footgun and keeps logs out of /tmp.
+    -->
 
     <key>ProcessType</key>
     <string>Background</string>

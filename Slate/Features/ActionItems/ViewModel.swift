@@ -84,7 +84,7 @@ final class ActionItemsViewModel: ObservableObject {
         // First refresh pulls everything from the last 24h.
         self.lastFetchSince = Date().addingTimeInterval(-24 * 60 * 60)
 
-        self.hourlyToken = scheduler.schedule(.hourly) { [weak self] in
+        self.hourlyToken = scheduler.schedule(.hourlyActionItems) { [weak self] in
             await self?.refreshNow()
         }
 
