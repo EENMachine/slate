@@ -1,0 +1,62 @@
+[
+  {
+    "id": "AAMkAG_outlook_001",
+    "source": "outlook",
+    "from": "Cara Liu <cara.liu@studio-eclipse.example>",
+    "to": ["producers@eenmachines.example"],
+    "subject": "Re: Aurora junket — talent hold confirmation needed",
+    "body": "Hey team,\n\nWe're holding Mike R. and Priya S. for the junket on Wednesday May 6 — 8 AM call, wrapped by 6 PM. Need confirmation by EOD Thursday or we'll release the holds. Glam can land at 6:30 if that works on your side.\n\nAlso — can someone send the run-of-show by Monday so the publicist can prep talking points?\n\nThanks,\nCara",
+    "receivedAt": "2026-04-29T09:14:00-07:00",
+    "webURL": "https://outlook.office.com/mail/id/AAMkAG_outlook_001"
+  },
+  {
+    "id": "AAMkAG_outlook_002",
+    "source": "outlook",
+    "from": "Locations <locations@goldengate-locations.example>",
+    "to": ["alex.morgan@eenmachines.example"],
+    "subject": "Mendocino oceanfront — final price + permit window",
+    "body": "Alex,\n\nThe Mendocino oceanfront house is $4,200/day, 2-day minimum. Permit window closes Friday 5/1 at noon — after that we'd have to push the shoot two weeks. Need PO by Thursday to lock it.\n\nSent the COI requirements separately. Crew cap 25.\n\n— J",
+    "receivedAt": "2026-04-29T10:42:00-07:00",
+    "webURL": "https://outlook.office.com/mail/id/AAMkAG_outlook_002"
+  },
+  {
+    "id": "19:meeting_teams_003",
+    "source": "teams",
+    "from": "Devon Park",
+    "to": ["#aurora-shoot"],
+    "subject": null,
+    "body": "@here heads up — DP is asking if we can swap the Arri to a Sony Venice for Tuesday. Rental delta is +$1,800/day. Need a call before 4 PM today so the rental house can switch the kit out tonight.",
+    "receivedAt": "2026-04-29T11:30:00-07:00",
+    "webURL": "https://teams.microsoft.com/l/message/19:meeting_teams_003"
+  },
+  {
+    "id": "AAMkAG_outlook_004",
+    "source": "outlook",
+    "from": "Wardrobe <wardrobe@costumecollective.example>",
+    "to": ["coordinators@eenmachines.example"],
+    "subject": "FYI — Aurora wardrobe check-in tomorrow 10 AM",
+    "body": "Just a confirmation note that the wardrobe check-in is tomorrow at 10 AM at our Brannan St space. No action needed unless someone needs to reschedule.\n\n— Margot",
+    "receivedAt": "2026-04-29T13:05:00-07:00",
+    "webURL": "https://outlook.office.com/mail/id/AAMkAG_outlook_004"
+  },
+  {
+    "id": "AAMkAG_outlook_005",
+    "source": "outlook",
+    "from": "Sasha Wren <sasha@eenmachines.example>",
+    "to": ["alex.morgan@eenmachines.example", "producers@eenmachines.example"],
+    "subject": "Budget overage on Aurora — need sign-off",
+    "body": "We're $12k over on Aurora, mostly post — extra VFX pass plus a sound re-record. Need the EP's sign-off this week or we cut the VFX scope. Can you and I sync tomorrow afternoon?\n\nS.",
+    "receivedAt": "2026-04-29T14:55:00-07:00",
+    "webURL": "https://outlook.office.com/mail/id/AAMkAG_outlook_005"
+  },
+  {
+    "id": "19:meeting_teams_006",
+    "source": "teams",
+    "from": "Alex Morgan",
+    "to": ["#aurora-shoot"],
+    "subject": null,
+    "body": "Reminder for everyone — the call sheet for Tuesday goes out tonight by 9 PM. Last call for any swaps or notes.",
+    "receivedAt": "2026-04-29T16:20:00-07:00",
+    "webURL": "https://teams.microsoft.com/l/message/19:meeting_teams_006"
+  }
+]

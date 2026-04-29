@@ -27,7 +27,13 @@ targets:
       - path: Slate
         excludes:
           - "**/README.md"
-    resources: []
+    resources:
+      # Mock Microsoft Graph fixtures so dev runs can exercise the full
+      # ActionItems pipeline without an Azure tenant. Bundled as a folder
+      # reference so `Bundle.main.url(forResource:withExtension:subdirectory:)`
+      # finds them under `<App>/Mail/<name>.json`.
+      - path: Tests/Fixtures/Mail
+        type: folder
     # The LaunchAgent plist must be copied into the app bundle at
     # `Contents/Library/LaunchAgents/com.eenmachines.slate.weekly.plist`
     # so `SMAppService.agent(plistName:)` can register it at runtime

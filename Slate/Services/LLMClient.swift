@@ -21,6 +21,7 @@
 //
 
 import Foundation
+import OSLog
 
 // MARK: - Public API: messages, requests, responses
 
@@ -187,11 +188,29 @@ struct AnthropicLLMClient: LLMClienting {
         }
 
         do {
-            return try AnthropicWire.decodeResponse(data)
+            let decoded = try AnthropicWire.decodeResponse(data)
+            Self.log.debug("""
+                anthropic /v1/messages OK \
+                input=\(decoded.inputTokens) output=\(decoded.outputTokens) \
+                cacheRead=\(decoded.cacheReadInputTokens) \
+                cacheWrite=\(decoded.cacheCreationInputTokens)
+                """)
+            // Cache-effectiveness probe: a second call with the same
+            // cacheable prefix should produce cacheRead > 0. If it stays
+            // at zero across repeated calls, a silent invalidator has
+            // crept into the system prompt or tool definitions.
+            if decoded.cacheReadInputTokens == 0 && decoded.cacheCreationInputTokens > 0 {
+                Self.log.info("Cache miss with creation \(decoded.cacheCreationInputTokens)t — first call or cache TTL expired.")
+            } else if decoded.cacheReadInputTokens > 0 {
+                Self.log.info("Cache hit: \(decoded.cacheReadInputTokens)t served from cache.")
+            }
+            return decoded
         } catch {
             throw LLMError.decode(error)
         }
     }
+
+    private static let log = Logger(subsystem: "com.eenmachines.slate", category: "LLMClient")
 }
 
 // MARK: - Wire format (Anthropic /v1/messages)

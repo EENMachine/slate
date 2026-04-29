@@ -30,19 +30,28 @@ struct ActionItemsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Action Items").font(.title2.weight(.semibold))
-                Text("Live to-do list \u{00B7} hourly Outlook + Teams scrape")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Action Items").font(.title2.weight(.semibold))
+                    Text("Live to-do list \u{00B7} hourly Outlook + Teams scrape")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let last = vm.lastRefreshed {
+                    Label(last.formatted(.relative(presentation: .named)),
+                          systemImage: "clock.arrow.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            Spacer()
-            if let last = vm.lastRefreshed {
-                Label(last.formatted(.relative(presentation: .named)),
-                      systemImage: "clock.arrow.circlepath")
+            if let err = vm.lastError {
+                Label(err, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
             }
         }
         .padding(.horizontal, 20)
