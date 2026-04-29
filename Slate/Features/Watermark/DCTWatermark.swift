@@ -49,6 +49,17 @@ enum DCTWatermark {
     /// the same dimensions. Plane stride must equal `width`.
     ///
     /// Throws if the plane has fewer 8×8 blocks than there are bits.
+    ///
+    /// Implementation note: the perturbation is added directly in the
+    /// spatial domain as `±strength · cos((2r+1)·iπ/(2N)) · cos((2c+1)·jπ/(2N))`
+    /// for (i=coefficientRow, j=coefficientCol). This is equivalent to
+    /// boosting the (i,j) DCT coefficient by a fixed signed magnitude, but
+    /// avoids depending on vDSP's iDCT scaling convention (which doesn't
+    /// match the textbook 2N round-trip factor on this codepath and was
+    /// the root cause of the original UInt8-quantization bug). Since
+    /// `extract` projects each block back onto the same basis function,
+    /// the embedded sign is preserved by orthogonality up to host-content
+    /// contamination at the same coefficient.
     static func embed(
         bits: [Bool],
         intoLuminance plane: [Float],
@@ -58,23 +69,26 @@ enum DCTWatermark {
         try precheck(plane: plane, width: width, height: height, bitCount: bits.count)
         var output = plane
 
-        // vDSP's DCT-II/III round-trip scales by (2N)² = 256 in 2-D, which
-        // `inverseDCT` already divides out. But DCT-III of a unit impulse
-        // at (i,j>0) has spatial peak amplitude 4 (= 2 per 1-D pass from
-        // the 2·cos(...) form), not 1. So pre-multiplying the modified
-        // coefficient by (2N)²/4 = 64 makes the spatial-domain peak of the
-        // perturbation equal `strength`, matching the doc-comment intent
-        // and keeping pixels safely inside [0,255] for normal host content.
-        let scale = Float((2 * blockSize) * (2 * blockSize)) / 4
+        // Pre-compute the spatial basis pattern for the carrier coefficient.
+        // Peak |amplitude| ≈ 0.69 for (3,4) on an 8×8 block, so the maximum
+        // pixel-level perturbation is ~0.69·strength.
+        var basisPattern = [Float](repeating: 0, count: blockSize * blockSize)
+        for r in 0..<blockSize {
+            for c in 0..<blockSize {
+                let row = cos(Double(2 * r + 1) * Double(coefficientRow) * .pi / Double(2 * blockSize))
+                let col = cos(Double(2 * c + 1) * Double(coefficientCol) * .pi / Double(2 * blockSize))
+                basisPattern[r * blockSize + c] = Float(row * col)
+            }
+        }
 
         for (bitIndex, bit) in bits.enumerated() {
             let (bx, by) = blockOrigin(forBitIndex: bitIndex, imageWidth: width)
-            var block = readBlock(from: output, at: (bx, by), stride: width)
-            forwardDCT(&block)
-            let i = coefficientRow * blockSize + coefficientCol
-            block[i] = signedMagnitude(block[i], targetSign: bit ? 1 : -1) * scale
-            inverseDCT(&block)
-            writeBlock(block, into: &output, at: (bx, by), stride: width)
+            let sign: Float = bit ? 1 : -1
+            for r in 0..<blockSize {
+                for c in 0..<blockSize {
+                    output[(by + r) * width + (bx + c)] += sign * strength * basisPattern[r * blockSize + c]
+                }
+            }
         }
         return output
     }
