@@ -81,6 +81,37 @@ final class DCTWatermarkTests: XCTestCase {
         XCTAssertEqual(recovered, bits)
     }
 
+    /// DIAGNOSTIC: Surface the actual spatial perturbation magnitude and
+    /// the post-quantization extracted-coefficient sign for a single -bit
+    /// block so we can see which assumption in the embed/extract math is
+    /// wrong. Failure messages contain the actual numbers.
+    func testDiagnostic_singleNegativeBit_block1() throws {
+        let w = 64, h = 64
+        let plane = gradientPlane(width: w, height: h)
+
+        // Embed a single FALSE bit at block 0 (origin 0,0). To isolate
+        // block-0 behavior, use just one bit.
+        let modified0 = try DCTWatermark.embed(bits: [false], intoLuminance: plane, width: w, height: h)
+        let delta0 = zip(modified0, plane).map { $0 - $1 }
+        let block0Delta = (0..<8).flatMap { r in (0..<8).map { c in delta0[r * w + c] } }
+        let block0Peak = block0Delta.map(abs).max() ?? 0
+        let block0Min = block0Delta.min() ?? 0
+        let block0Max = block0Delta.max() ?? 0
+
+        // Quantize and extract.
+        let quantized0 = modified0.map { Float(UInt8(max(0, min(255, $0.rounded())))) }
+        let recovered0 = try DCTWatermark.extract(bitCount: 1, fromLuminance: quantized0, width: w, height: h)
+
+        // Forward-DCT the quantized block 0 manually to see the actual
+        // (3,4) coefficient at extract time.
+        var rawBlock = [Float](repeating: 0, count: 64)
+        for r in 0..<8 { for c in 0..<8 { rawBlock[r * 8 + c] = quantized0[r * w + c] } }
+        // We can't call private forwardDCT, but extract reads sign of
+        // coefficient — use the recovered value to infer.
+
+        XCTFail("DIAGNOSTIC block 0 (bit=false, sign=-1): perturbation peak=\(block0Peak), min=\(block0Min), max=\(block0Max), recovered=\(recovered0[0])")
+    }
+
     func testRejectsNonBlockAlignedDimensions() {
         let plane = [Float](repeating: 128, count: 70 * 64)
         XCTAssertThrowsError(
