@@ -141,6 +141,22 @@ enum WatermarkPayload {
         return bytes
     }
 
+    // MARK: - Diagnostics helpers (used by `MediaPipeline.extractDetailed`)
+
+    /// Apply majority-vote collapse with the configured repetition factor.
+    /// Exposed so the diagnostic extractor can inspect the collapsed bit
+    /// stream before validating magic/CRC.
+    static func majorityVoteBits(_ bits: [Bool]) -> [Bool] {
+        majorityVote(bits, factor: repetitionFactor)
+    }
+
+    /// CRC-16/CCITT (XMODEM) over a byte array. Exposed for the
+    /// diagnostic extractor so it can recompute the CRC over the
+    /// recovered header+body and compare against the received CRC.
+    static func crc16Public(_ bytes: [UInt8]) -> UInt16 {
+        crc16(bytes)
+    }
+
     // MARK: - Repetition code
 
     private static func repeatBits(_ bits: [Bool], factor: Int) -> [Bool] {

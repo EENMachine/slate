@@ -31,10 +31,41 @@ struct WatermarkJob: Identifiable, Hashable {
     var status: Status
 }
 
+/// Job in the Extract queue: read a video and report what watermark it
+/// finds, with full diagnostic info (or a useful error if no mark is
+/// present). Separate from `WatermarkJob` because the workflow is
+/// inherently different — extraction has no payload to specify upfront,
+/// and the result is structured diagnostic data, not just success/fail.
+struct ExtractJob: Identifiable, Hashable {
+    enum Status: Hashable {
+        case queued
+        case processing
+        case done(detail: ExtractDetail)
+        case failed(message: String)
+
+        var label: String {
+            switch self {
+            case .queued: return "Queued"
+            case .processing: return "Reading…"
+            case .done(let d):
+                if d.decodedPayload != nil { return "Decoded \u{2713}" }
+                if d.magicMatched { return "Found magic, body corrupted" }
+                return "No watermark detected"
+            case .failed(let m): return "Failed — \(m)"
+            }
+        }
+    }
+
+    let id: UUID
+    let sourceURL: URL
+    var status: Status
+}
+
 @MainActor
 final class WatermarkViewModel: ObservableObject {
     @Published var shootID: String = ""
     @Published var queue: [WatermarkJob] = []
+    @Published var extractQueue: [ExtractJob] = []
 
     private let pipeline: any MediaProcessing
 
@@ -93,6 +124,45 @@ final class WatermarkViewModel: ObservableObject {
             queue[jobIndex].status = .done(outputURL: result.outputURL, verified: result.verified)
         } catch {
             queue[jobIndex].status = .failed(message: "\(error)")
+        }
+    }
+
+    // MARK: - Extract flow
+
+    /// Open an NSOpenPanel to add video files to the Extract queue. No
+    /// payload required — the extractor auto-detects via the 4-byte
+    /// header in the bit stream.
+    func chooseExtractFiles() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.movie, .quickTimeMovie, .mpeg4Movie]
+        panel.title = "Choose video files to extract a watermark from"
+        guard panel.runModal() == .OK else { return }
+        let newJobs = panel.urls.map { url in
+            ExtractJob(id: UUID(), sourceURL: url, status: .queued)
+        }
+        extractQueue.append(contentsOf: newJobs)
+    }
+
+    /// Process every queued extract job sequentially.
+    func runExtractQueue() async {
+        for index in extractQueue.indices {
+            guard case .queued = extractQueue[index].status else { continue }
+            await processExtract(jobIndex: index)
+        }
+    }
+
+    private func processExtract(jobIndex: Int) async {
+        guard extractQueue.indices.contains(jobIndex) else { return }
+        let job = extractQueue[jobIndex]
+        extractQueue[jobIndex].status = .processing
+        do {
+            let detail = try await pipeline.extractDetailed(from: job.sourceURL)
+            extractQueue[jobIndex].status = .done(detail: detail)
+        } catch {
+            extractQueue[jobIndex].status = .failed(message: "\(error)")
         }
     }
 
