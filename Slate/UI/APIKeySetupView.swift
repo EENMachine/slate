@@ -68,8 +68,15 @@ struct APIKeySetupView: View {
 
                 Spacer()
 
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                // "Skip for now" flips the in-memory key gate without persisting
+                // anything to Keychain. LLM features will fail at call time with
+                // a clear error, but the rest of the UI is fully usable for
+                // testing and demoing. The key prompt returns next launch.
+                Button("Skip for now") {
+                    state.hasKey = true
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
 
                 Button {
                     save()
