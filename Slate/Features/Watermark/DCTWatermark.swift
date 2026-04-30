@@ -37,14 +37,17 @@ enum DCTWatermark {
     static let coefficientCol: Int = 4
 
     /// Minimum |coefficient| we enforce in the DCT domain after embedding.
-    /// With orthonormal 2-D DCT-II/III on 8×8 blocks, the spatial peak
-    /// of an iDCT'd unit impulse at (i,j) where both i,j > 0 is `2/N` =
-    /// 0.25, so strength=16 gives a spatial perturbation peak of ±4 luma
-    /// units. That sits comfortably above UInt8 quantization noise
-    /// (±0.5/pixel) and small enough to avoid clipping for any host
-    /// pixel between 4 and 251 (i.e., everything except deep shadows
-    /// and blown highlights, which are rare in real footage).
-    static let strength: Float = 16.0
+    /// With orthonormal 2-D DCT-II/III on 8×8 blocks, the spatial peak of
+    /// an iDCT'd unit impulse at (i,j) where both i,j > 0 is `2/N` = 0.25,
+    /// so strength=64 gives a spatial perturbation peak of ±16 luma units.
+    /// Why 64 rather than something smaller: H.264 quantization at
+    /// standard bitrates uses QP steps of roughly 5–10 luma units, so the
+    /// embedded coefficient must stay above that floor to survive a
+    /// re-encode round-trip. Strength=16 (spatial peak ±4) was enough for
+    /// pure UInt8 quantization but failed the real-codec verify path —
+    /// 64 gives ~3× headroom over a typical H.264 QP step. Still
+    /// imperceptible on natural footage (16 luma on a 0–255 scale ≈ 6%).
+    static let strength: Float = 64.0
 
     /// Embed `bits` into the luminance plane, returning a new plane with
     /// the same dimensions. Plane stride must equal `width`.
