@@ -73,7 +73,7 @@ enum SlateDestination: String, CaseIterable, Identifiable, Hashable {
 }
 
 struct RootView: View {
-    @State private var selection: SlateDestination? = .callSheets
+    @State private var selection: SlateDestination = .callSheets
 
     var body: some View {
         NavigationSplitView {
@@ -90,7 +90,7 @@ struct RootView: View {
                 Section("Modules") {
                     ForEach(SlateDestination.allCases) { dest in
                         Label(dest.rawValue, systemImage: dest.systemImage)
-                            .tag(Optional(dest))
+                            .tag(dest)
                     }
                 }
             }
@@ -114,7 +114,6 @@ struct RootView: View {
         case .views:        ViewsView()
         case .watermark:    WatermarkView()
         case .actionItems:  ActionItemsView()
-        case .none:         ContentUnavailableView("Pick a module", systemImage: "sidebar.left")
         }
     }
 }
